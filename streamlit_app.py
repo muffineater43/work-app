@@ -23,23 +23,30 @@ if not uploaded_files:
 def load_contracts(files):
     contracts = {}
     for f in files:
-        # read CSV, expect a Date-Time or Timestamp column
+        # read CSV, expect a Date-Time or Timestamp column plus OHLC columns
         df = pd.read_csv(f, parse_dates=[0])
+        # ensure timestamp index
         df.columns = ["Date-Time"] + list(df.columns[1:])
         df.set_index("Date-Time", inplace=True)
         df.index = df.index.tz_localize(None)
         # derive a friendly name from filename
         name = f.name.replace(".csv", "")
-        # assume the price column is the only other column
-        contracts[name] = df.iloc[:, 0].rename(name)
-    return pd.concat(contracts.values(), axis=1)
+        # explicitly pick the 'Close' price column
+        if 'Close' in df.columns:
+            contracts[name] = df['Close'].rename(name)
+        else:
+            # fallback to first numeric column
+            numeric_cols = df.select_dtypes('number').columns
+            contracts[name] = df[numeric_cols[0]].rename(name)
+    return pd.concat(contracts.values(), axis=1)(contracts.values(), axis=1)
 
 # build one master DataFrame of all series
 raw_df = load_contracts(uploaded_files)
 
 # ----------------------
-# 2) SIDEBAR CONTRACT SELECTION
+# 2) SIDEBAR CONTRACT SELECTION WITH TYPE FILTERING
 # ----------------------
+# Automatically split between butterfly and outright series based on filename
 butterflies = [c for c in raw_df.columns if 'butterfly' in c.lower()]
 outrights = [c for c in raw_df.columns if c not in butterflies]
 
@@ -73,6 +80,7 @@ if out_contract == fly_contract:
 if out_contract == fly_contract:
     st.sidebar.error("Outright and butterfly must be different.")
     st.stop()
+
 # ----------------------
 # 3) PREP & PARAMETERS
 # ----------------------
@@ -89,7 +97,6 @@ df = raw_df[[out_contract, fly_contract]].dropna()
 # ----------------------
 # 4) CALC: rolling regression
 # ----------------------
-
 betas, alphas = [], []
 for t in df.index:
     window = df.loc[t - pd.DateOffset(months=window_months) : t]
@@ -123,14 +130,12 @@ st.metric(
 # ----------------------
 # 6) DISTRIBUTION PLOT
 # ----------------------
-import matplotlib as mpl
-mpl.rcParams['font.size'] = 10
-fig, ax = plt.subplots(figsize=(12, 5))
+fig, ax = plt.subplots()
 ax.hist(df['residual'].dropna(), bins=50, density=True, alpha=0.6)
 x_vals = np.linspace(mu-4*sigma, mu+4*sigma, 200)
 ax.plot(x_vals, norm.pdf(x_vals, mu, sigma), linewidth=2)
-ax.set_title("Residuals vs. Normal PDF", fontsize=12)
-st.pyplot(fig, use_container_width=True)
+ax.set_title("Residuals vs. Normal PDF")
+st.pyplot(fig)
 
 # ----------------------
 # 7) SUMMARY TABLE
