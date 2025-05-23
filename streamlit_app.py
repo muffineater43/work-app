@@ -41,6 +41,21 @@ def load_contracts(files):
 
 raw_df = load_contracts(uploaded_files)
 
+
+
+
+
+# DEBUG #1: show what you actually loaded
+st.sidebar.write("▶️ Loaded contracts:", raw_df.columns.tolist())
+st.sidebar.write("▶️ Points per series:",
+                 {c: raw_df[c].dropna().shape[0] for c in raw_df.columns})
+
+
+
+
+
+
+
 # ----------------------
 # 2) SIDEBAR: CONTRACT TYPE DETECTION & SELECTION
 # ----------------------
