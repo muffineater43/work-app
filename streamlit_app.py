@@ -11,7 +11,7 @@ st.title("3-Month Fly vs Outright Dashboard")
 # 1) FILE UPLOAD / DATA LOAD
 # ----------------------
 uploaded_files = st.sidebar.file_uploader(
-    "Upload your contract CSVs (outrights and butterfly)",
+    "Upload your contract CSVs (outrights and butterflies)",
     type=["csv"],
     accept_multiple_files=True
 )
@@ -21,138 +21,113 @@ if not uploaded_files:
 
 @st.cache_data
 def load_contracts(files):
-    contracts = {}
-    for f in files:
-        # read CSV, expect a Date-Time or Timestamp column plus OHLC columns
-        df = pd.read_csv(f, parse_dates=[0])
-        # ensure timestamp index
+    # Read each CSV, parse first column as datetime, pick 'Close' price
+    series = {}
+    for file in files:
+        df = pd.read_csv(file, parse_dates=[0])
         df.columns = ["Date-Time"] + list(df.columns[1:])
         df.set_index("Date-Time", inplace=True)
         df.index = df.index.tz_localize(None)
-        # derive a friendly name from filename
-        name = f.name.replace(".csv", "")
-        # explicitly pick the 'Close' price column
+        name = file.name.rsplit('.', 1)[0]
+        # Prefer 'Close' column
         if 'Close' in df.columns:
-            contracts[name] = df['Close'].rename(name)
+            series[name] = df['Close'].rename(name)
         else:
             # fallback to first numeric column
-            numeric_cols = df.select_dtypes('number').columns
-            contracts[name] = df[numeric_cols[0]].rename(name)
-    return pd.concat(contracts.values(), axis=1)(contracts.values(), axis=1)
+            num_cols = df.select_dtypes(include=np.number).columns
+            series[name] = df[num_cols[0]].rename(name)
+    # combine into one DataFrame aligned on index
+    return pd.concat(series.values(), axis=1)
 
-# build one master DataFrame of all series
 raw_df = load_contracts(uploaded_files)
 
 # ----------------------
-# 2) SIDEBAR CONTRACT SELECTION WITH TYPE FILTERING
+# 2) SIDEBAR: CONTRACT TYPE DETECTION & SELECTION
 # ----------------------
-# Automatically split between butterfly and outright series based on filename
 butterflies = [c for c in raw_df.columns if 'butterfly' in c.lower()]
 outrights = [c for c in raw_df.columns if c not in butterflies]
 
 st.sidebar.subheader("Contract selection")
 if outrights:
-    out_contract = st.sidebar.selectbox(
-        "Choose outright contract:", outrights,
-        index=0
-    )
+    out_contract = st.sidebar.selectbox("Choose outright:", outrights)
 else:
-    out_contract = st.sidebar.selectbox(
-        "Choose outright contract:", raw_df.columns,
-        index=0
-    )
-
+    out_contract = st.sidebar.selectbox("Choose outright:", raw_df.columns)
 if butterflies:
-    fly_contract = st.sidebar.selectbox(
-        "Choose butterfly contract:", butterflies,
-        index=0
-    )
+    fly_contract = st.sidebar.selectbox("Choose butterfly:", butterflies)
 else:
-    fly_contract = st.sidebar.selectbox(
-        "Choose butterfly contract:", raw_df.columns,
-        index=len(raw_df.columns)-1
-    )
+    fly_contract = st.sidebar.selectbox("Choose butterfly:", raw_df.columns)
 
-# ensure two distinct
-if out_contract == fly_contract:
-    st.sidebar.error("Outright and butterfly must be different.")
-    st.stop()
 if out_contract == fly_contract:
     st.sidebar.error("Outright and butterfly must be different.")
     st.stop()
 
 # ----------------------
-# 3) PREP & PARAMETERS
+# 3) PARAMETERS
 # ----------------------
-min_periods = st.sidebar.number_input(
-    "Min points for regression", 10, 200, 50
-)
-window_months = st.sidebar.slider(
-    "Rolling window (months)", 1, 12, 3
-)
+min_periods = st.sidebar.number_input("Min points for regression", min_value=10, max_value=200, value=50)
+window_months = st.sidebar.slider("Rolling window (months)", 1, 12, 3)
 
-# form df for analysis
+# Prepare analysis DataFrame
 df = raw_df[[out_contract, fly_contract]].dropna()
 
 # ----------------------
-# 4) CALC: rolling regression
+# 4) ROLLING REGRESSION
 # ----------------------
 betas, alphas = [], []
 for t in df.index:
-    window = df.loc[t - pd.DateOffset(months=window_months) : t]
+    start = t - pd.DateOffset(months=window_months)
+    window = df.loc[start:t]
     if len(window) < min_periods:
         betas.append(np.nan)
         alphas.append(np.nan)
     else:
-        # fly ~ beta * outright + intercept
-        slope, intercept = np.polyfit(window[out_contract], window[fly_contract], 1)
+        x = window[out_contract]
+        y = window[fly_contract]
+        slope, intercept = np.polyfit(x, y, 1)
         betas.append(slope)
         alphas.append(intercept)
 
-# attach results
-df = df.assign(beta=betas, intercept=alphas)
+# Attach results to df
+df['beta'] = betas
+df['intercept'] = alphas
 df['predicted'] = df['beta'] * df[out_contract] + df['intercept']
 df['residual'] = df[fly_contract] - df['predicted']
 
 # ----------------------
 # 5) STATS & METRICS
 # ----------------------
-mu, sigma = df['residual'].mean(), df['residual'].std(ddof=1)
-latest_res = df['residual'].iloc[-1]
-z_score = (latest_res - mu) / sigma
+mu = df['residual'].mean()
+sigma = df['residual'].std(ddof=1)
+latest = df['residual'].iloc[-1]
+z_score = (latest - mu) / sigma
 
 st.subheader("Latest Residual Z-Score")
-st.metric(
-    label=f"Z-score as of {df.index[-1].date()}",
-    value=f"{z_score:.2f}"
-)
+st.metric(label=f"As of {df.index[-1].date()}", value=f"{z_score:.2f}")
 
 # ----------------------
 # 6) DISTRIBUTION PLOT
 # ----------------------
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(12, 5))
 ax.hist(df['residual'].dropna(), bins=50, density=True, alpha=0.6)
-x_vals = np.linspace(mu-4*sigma, mu+4*sigma, 200)
+x_vals = np.linspace(mu - 4*sigma, mu + 4*sigma, 200)
 ax.plot(x_vals, norm.pdf(x_vals, mu, sigma), linewidth=2)
-ax.set_title("Residuals vs. Normal PDF")
-st.pyplot(fig)
+ax.set_title("Residuals vs. Normal PDF", fontsize=12)
+st.pyplot(fig, use_container_width=True)
 
 # ----------------------
-# 7) SUMMARY TABLE
+# 7) SUMMARY STATISTICS
 # ----------------------
-st.subheader("Residuals Summary Statistics")
-st.table(
-    pd.DataFrame({
-        'Mean': [mu],
-        'Std Dev': [sigma],
-        'Skewness': [skew(df['residual'].dropna())],
-        'Kurtosis': [kurtosis(df['residual'].dropna(), fisher=False)]
-    }, index=["Value"])
-)
+st.subheader("Residual Summary Statistics")
+st.table(pd.DataFrame({
+    'Mean': [mu],
+    'Std Dev': [sigma],
+    'Skewness': [skew(df['residual'].dropna())],
+    'Kurtosis': [kurtosis(df['residual'].dropna(), fisher=False)]
+}, index=["Value"]))
 
 # ----------------------
 # 8) BETA OVER TIME
 # ----------------------
 if st.checkbox("Show β over time"):
-    st.subheader(f"Rolling β: {out_contract} vs {fly_contract}")
+    st.subheader(f"Rolling β for {out_contract} vs {fly_contract}")
     st.line_chart(df['beta'].dropna())
