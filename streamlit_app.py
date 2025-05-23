@@ -89,11 +89,6 @@ df = raw_df[[out_contract, fly_contract]].dropna()
 # ----------------------
 # 4) CALC: rolling regression
 # ----------------------
-slope, intercept = np.polyfit(
-    window[out_contract], 
-    window[fly_contract], 
-    1
-)
 
 betas, alphas = [], []
 for t in df.index:
