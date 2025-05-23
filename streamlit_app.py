@@ -91,27 +91,35 @@ ax.plot(x, norm.pdf(x, mu2, sigma2), linewidth=2)
 ax.set_title("Residuals Histogram with Fitted Normal Curve")
 st.pyplot(fig, use_container_width=True)
 
-# Initialize history storage
+
+
+
+# 1) Initialize history storage
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# Define the save callback
-def save_metrics():
+# 2) Define a callback that takes all values as arguments
+def save_metrics(mean, std, skewness, kurtosis_val, zscore, butterfly_name):
     st.session_state.history.append({
-        "butterfly": fly_file.name,
-        "mean":      mu,
-        "std":       sigma,
-        "skew":      skw,
-        "kurtosis":  kurt_p,
-        "z_score":   latest_z
+        "butterfly": butterfly_name,
+        "mean":       mean,
+        "std":        std,
+        "skew":       skewness,
+        "kurtosis":   kurtosis_val,
+        "z_score":    zscore
     })
 
-# Render the Save button
-st.button("Save Metrics", on_click=save_metrics)
+# 3) Render the Save button, passing the current metrics into the callback
+st.button(
+    "Save Metrics",
+    on_click=save_metrics,
+    args=(mu, sigma, skw, kurt_p, latest_z, fly_file.name)
+)
 
-# (Optional) Show the saved history
+# 4) (Optional) Show the saved history
 if st.session_state.history:
     hist_df = pd.DataFrame(st.session_state.history)
     st.dataframe(hist_df)
+
 
 
