@@ -40,22 +40,39 @@ raw_df = load_contracts(uploaded_files)
 # ----------------------
 # 2) SIDEBAR CONTRACT SELECTION
 # ----------------------
-all_contracts = list(raw_df.columns)
+butterflies = [c for c in raw_df.columns if 'butterfly' in c.lower()]
+outrights = [c for c in raw_df.columns if c not in butterflies]
+
 st.sidebar.subheader("Contract selection")
-out_contract = st.sidebar.selectbox(
-    "Choose outright contract:", all_contracts,
-    index=0
-)
-fly_contract = st.sidebar.selectbox(
-    "Choose butterfly contract:", all_contracts,
-    index=len(all_contracts)-1
-)
+if outrights:
+    out_contract = st.sidebar.selectbox(
+        "Choose outright contract:", outrights,
+        index=0
+    )
+else:
+    out_contract = st.sidebar.selectbox(
+        "Choose outright contract:", raw_df.columns,
+        index=0
+    )
+
+if butterflies:
+    fly_contract = st.sidebar.selectbox(
+        "Choose butterfly contract:", butterflies,
+        index=0
+    )
+else:
+    fly_contract = st.sidebar.selectbox(
+        "Choose butterfly contract:", raw_df.columns,
+        index=len(raw_df.columns)-1
+    )
 
 # ensure two distinct
 if out_contract == fly_contract:
     st.sidebar.error("Outright and butterfly must be different.")
     st.stop()
-
+if out_contract == fly_contract:
+    st.sidebar.error("Outright and butterfly must be different.")
+    st.stop()
 # ----------------------
 # 3) PREP & PARAMETERS
 # ----------------------
