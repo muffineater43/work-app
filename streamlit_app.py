@@ -25,20 +25,20 @@ common = set(df_fly["Timestamp (UTC)"]) & set(df_leg["Timestamp (UTC)"])
 fly_common = df_fly[df_fly["Timestamp (UTC)"].isin(common)].sort_values("Timestamp (UTC)")
 leg_common = df_leg[df_leg["Timestamp (UTC)"].isin(common)].sort_values("Timestamp (UTC)")
 
-df = pd.DataFrame({
-    "leg": leg_common.set_index("Timestamp (UTC)")["Close"],
-    "fly": fly_common.set_index("Timestamp (UTC)")["Close"],
-}).dropna()
-df.index = pd.to_datetime(df.index)
-df.sort_index(inplace=True)
+# build aligned DataFrame
+ df = pd.DataFrame({
+     "leg": leg_common.set_index("Timestamp (UTC)")["Close"],
+     "fly": fly_common.set_index("Timestamp (UTC)")["Close"],
+ }).dropna()
+ df.index = pd.to_datetime(df.index)
+ df.sort_index(inplace=True)
 
 # 3) Rolling 3-month regression
 betas, alphas = [], []
 min_periods = 50
 window_months = 3
 for t in df.index:
-    start = t - pd.DateOffset(months=window_months)
-    window_df = df.loc[(df.index >= start) & (df.index <= t)]
+    window_df = df.loc[(df.index >= (t - pd.DateOffset(months=window_months))) & (df.index <= t)]
     if len(window_df) < min_periods:
         betas.append(np.nan)
         alphas.append(np.nan)
@@ -70,10 +70,9 @@ st.write(f"Kurtosis: {kurt_p:.4f}")
 st.write(f"Latest Z-score: {latest_z:.2f}")
 
 # 6) Save feature
-if "history" not in st.session_state:
-    st.session_state.history = []
-
 def save_metrics():
+    if "history" not in st.session_state:
+        st.session_state.history = []
     st.session_state.history.append({
         "butterfly": fly_file.name,
         "mean": float(mu),
@@ -86,11 +85,11 @@ def save_metrics():
 st.button("Save Metrics", on_click=save_metrics)
 
 # 7) Show history
-if st.session_state.history:
+if "history" in st.session_state and st.session_state.history:
     st.subheader("Saved Metrics History")
-    hist_df = pd.DataFrame(st.session_state.history)
-    st.dataframe(hist_df)
-    csv = hist_df.to_csv(index=False).encode("utf-8")
+    history_df = pd.DataFrame(st.session_state.history)
+    st.dataframe(history_df)
+    csv = history_df.to_csv(index=False).encode("utf-8")
     st.download_button("Download Metrics CSV", csv, "metrics_history.csv", "text/csv")
 
 # 8) Optional histogram
