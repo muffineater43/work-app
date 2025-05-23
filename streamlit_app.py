@@ -18,23 +18,19 @@ if not fly_file or not leg_file:
     st.sidebar.info("Please upload both a butterfly and an outright CSV.")
     st.stop()
 
-# 2) Load, parse, and align on intersection of dates
-@st.cache_data
-def load_series(file):
-    df = pd.read_csv(file, parse_dates=["Timestamp (UTC)"])
-    df.set_index("Timestamp (UTC)", inplace=True)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
-    if "Close" in df.columns:
-        return df["Close"]
-    return df.select_dtypes(include=np.number).iloc[:, 0]
+# 2) Load and align on common dates
+df_fly = pd.read_csv(fly_file, parse_dates=["Timestamp (UTC)"])
+df_leg = pd.read_csv(leg_file, parse_dates=["Timestamp (UTC)"])
+common = set(df_fly["Timestamp (UTC)"]) & set(df_leg["Timestamp (UTC)"])
+fly_common = df_fly[df_fly["Timestamp (UTC)"].isin(common)].sort_values("Timestamp (UTC)")
+leg_common = df_leg[df_leg["Timestamp (UTC)"].isin(common)].sort_values("Timestamp (UTC)")
 
-fly = load_series(fly_file).rename("fly")
-leg = load_series(leg_file).rename("leg")
+df = pd.DataFrame({
+    "leg": leg_common.set_index("Timestamp (UTC)")["Close"],
+    "fly": fly_common.set_index("Timestamp (UTC)")["Close"],
+}).dropna()
+df.index = pd.to_datetime(df.index)
 
-common_idx = fly.index.intersection(leg.index)
-fly = fly.loc[common_idx]
-leg = leg.loc[common_idx]
-df = pd.DataFrame({"fly": fly, "leg": leg}).dropna()
 df.sort_index(inplace=True)
 
 # 3) Rolling 3-month regression
@@ -43,12 +39,12 @@ min_periods = 50
 window_months = 3
 for t in df.index:
     start = t - pd.DateOffset(months=window_months)
-    window = df.loc[(df.index >= start) & (df.index <= t)]
-    if len(window) < min_periods:
+    window_df = df.loc[(df.index >= start) & (df.index <= t)]
+    if len(window_df) < min_periods:
         betas.append(np.nan)
         alphas.append(np.nan)
     else:
-        m, b0 = np.polyfit(window["leg"], window["fly"], 1)
+        m, b0 = np.polyfit(window_df["leg"], window_df["fly"], 1)
         betas.append(m)
         alphas.append(b0)
 
@@ -74,9 +70,12 @@ c3.metric("Skewness", f"{skw:.4f}")
 c4.metric("Kurtosis", f"{kurt_p:.4f}")
 c5.metric("Latest Z", f"{latest_z:.2f}")
 
+# Initialize history in session state
+tab_name = fly_file.name
 if "history" not in st.session_state:
     st.session_state.history = []
-if st.button("Save Metrics"):
+# Save metrics
+def save_metrics():
     st.session_state.history.append({
         "butterfly": fly_file.name,
         "mean": mu,
@@ -86,12 +85,14 @@ if st.button("Save Metrics"):
         "z_score": latest_z
     })
 
+st.button("Save Metrics", on_click=save_metrics)
+
 # 6) Show and download history
 if st.session_state.history:
     st.subheader("Saved Metrics History")
-    hist_df = pd.DataFrame(st.session_state.history)
-    st.dataframe(hist_df)
-    csv = hist_df.to_csv(index=False).encode("utf-8")
+    history_df = pd.DataFrame(st.session_state.history)
+    st.dataframe(history_df)
+    csv = history_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="Download Metrics CSV",
         data=csv,
@@ -99,7 +100,7 @@ if st.session_state.history:
         mime="text/csv"
     )
 
-# 7) Optional histogram
+# 7) (Optional) Histogram with fitted normal curve
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.hist(res, bins=30, density=True, alpha=0.6)
 x_vals = np.linspace(mu - 4*sigma, mu + 4*sigma, 200)
