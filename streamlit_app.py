@@ -21,24 +21,20 @@ if not uploaded_files:
 
 @st.cache_data
 def load_contracts(files):
-    series = {}
+    series = []
     for file in files:
         df = pd.read_csv(file, parse_dates=[0])
         df.columns = ["Timestamp (UTC)"] + list(df.columns[1:])
         df.set_index("Timestamp (UTC)", inplace=True)
-        df.index = pd.to_datetime(df.index).tz_localize(None)
+        df.index = df.index.tz_localize(None)
         name = file.name.rsplit(".", 1)[0]
-        if "Close" in df.columns:
-            series[name] = df["Close"].rename(name)
-        else:
-            num_cols = df.select_dtypes(include=np.number).columns
-            series[name] = df[num_cols[0]].rename(name)
-    # concat with union of timestamps
-    raw = pd.concat(series.values(), axis=1)
-    # keep only dates present in every series
-    return raw.dropna(how="any")
+        price = df["Close"] if "Close" in df.columns else df.select_dtypes("number").iloc[:,0]
+        series.append(price.rename(name))
+    # INNER join: only timestamps common to ALL series
+    return pd.concat(series, axis=1, join="inner")
 
 raw_df = load_contracts(uploaded_files)
+
 
 # ----------------------
 # 2) SIDEBAR: CONTRACT DETECTION & SELECTION
