@@ -43,6 +43,12 @@ raw_df = pd.concat(series.values(), axis=1, join="inner")
 
 
 
+df = raw_df[[out_contract, fly_contract]].dropna()
+df.sort_index(inplace=True)
+st.subheader("🔍 Selected Contracts (Aligned)")
+st.line_chart(df[[out_contract, fly_contract]])
+
+
 # ----------------------
 # 2) SIDEBAR: CONTRACT TYPE DETECTION & SELECTION
 # ----------------------
