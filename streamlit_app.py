@@ -25,8 +25,8 @@ def load_contracts(files):
     series = {}
     for file in files:
         df = pd.read_csv(file, parse_dates=[0])
-        df.columns = ["Date-Time"] + list(df.columns[1:])
-        df.set_index("Date-Time", inplace=True)
+        df.columns = ["Timestamp (UTC)"] + list(df.columns[1:])
+        df.set_index("Timestamp (UTC)", inplace=True)
         df.index = df.index.tz_localize(None)
         name = file.name.rsplit('.', 1)[0]
         # Prefer 'Close' column
@@ -40,14 +40,6 @@ def load_contracts(files):
     return pd.concat(series.values(), axis=1)
 
 raw_df = pd.concat(series.values(), axis=1, join="inner")
-
-
-
-df = raw_df[[out_contract, fly_contract]].dropna()
-df.sort_index(inplace=True)
-st.subheader("🔍 Selected Contracts (Aligned)")
-st.line_chart(df[[out_contract, fly_contract]])
-
 
 # ----------------------
 # 2) SIDEBAR: CONTRACT TYPE DETECTION & SELECTION
