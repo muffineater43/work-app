@@ -69,14 +69,15 @@ window_months = st.sidebar.slider("Rolling window (months)", 1, 12, 3)
 
 # Prepare analysis DataFrame
 df = raw_df[[out_contract, fly_contract]].dropna()
-
+df.sort_index(inplace=True)   
 # ----------------------
 # 4) ROLLING REGRESSION
 # ----------------------
 betas, alphas = [], []
 for t in df.index:
     start = t - pd.DateOffset(months=window_months)
-    window = df.loc[start:t]
+    # inclusive slice: between start AND t
+    window = df.loc[(df.index >= start) & (df.index <= t)]
     if len(window) < min_periods:
         betas.append(np.nan)
         alphas.append(np.nan)
