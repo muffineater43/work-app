@@ -1,95 +1,133 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import norm
 import matplotlib.pyplot as plt
-from scipy.stats import skew, kurtosis, norm
-warnings.filterwarnings("ignore", message="Workbook contains no default style")
+from scipy.stats import norm, skew, kurtosis
 
-df1 = pd.read_csv("SR3 Dec25 3mo Butterfly_Daily.csv")
-df2 = pd.read_csv("SR3 Dec25_Daily.csv")
-df3 = pd.read_csv("SR3 Jun26_Daily.csv")
-df4 = pd.read_csv("SR3 Mar26_Daily.csv")
+st.set_page_config(layout="wide")
+st.title("3-Month Fly vs Outright Dashboard")
 
-common_times = set(df1['Timestamp (UTC)']) & set(df2['Timestamp (UTC)']) & set(df3['Timestamp (UTC)']) & set(df4['Timestamp (UTC)'])
-leg3_common = df4[df4['Timestamp (UTC)'].isin(common_times)]
-leg2_common = df3[df3['Timestamp (UTC)'].isin(common_times)]
-leg1_common = df2[df2['Timestamp (UTC)'].isin(common_times)]
-fly_common = df1[df1['Timestamp (UTC)'].isin(common_times)]
+# ----------------------
+# 1) FILE UPLOAD / DATA LOAD
+# ----------------------
+uploaded_files = st.sidebar.file_uploader(
+    "Upload your contract CSVs (outrights and butterfly)",
+    type=["csv"],
+    accept_multiple_files=True
+)
+if not uploaded_files:
+    st.sidebar.info("Please upload one or more CSV files to get started.")
+    st.stop()
 
+@st.cache_data
+def load_contracts(files):
+    contracts = {}
+    for f in files:
+        # read CSV, expect a Date-Time or Timestamp column
+        df = pd.read_csv(f, parse_dates=[0])
+        df.columns = ["Date-Time"] + list(df.columns[1:])
+        df.set_index("Date-Time", inplace=True)
+        df.index = df.index.tz_localize(None)
+        # derive a friendly name from filename
+        name = f.name.replace(".csv", "")
+        # assume the price column is the only other column
+        contracts[name] = df.iloc[:, 0].rename(name)
+    return pd.concat(contracts.values(), axis=1)
 
-df = pd.DataFrame({
-    'leg3':   leg3_common.set_index('Timestamp (UTC)')['Close'],
-    'leg2':   leg2_common.set_index('Timestamp (UTC)')['Close'],
-    'leg1':   leg1_common.set_index('Timestamp (UTC)')['Close'],
-    'fly': fly_common.set_index('Timestamp (UTC)')['Close'],
-}).dropna()
+# build one master DataFrame of all series
+raw_df = load_contracts(uploaded_files)
 
-df.index = pd.to_datetime(df.index)
+# ----------------------
+# 2) SIDEBAR CONTRACT SELECTION
+# ----------------------
+all_contracts = list(raw_df.columns)
+st.sidebar.subheader("Contract selection")
+out_contract = st.sidebar.selectbox(
+    "Choose outright contract:", all_contracts,
+    index=0
+)
+fly_contract = st.sidebar.selectbox(
+    "Choose butterfly contract:", all_contracts,
+    index=len(all_contracts)-1
+)
 
+# ensure two distinct
+if out_contract == fly_contract:
+    st.sidebar.error("Outright and butterfly must be different.")
+    st.stop()
 
-#Fly vs Outright
+# ----------------------
+# 3) PREP & PARAMETERS
+# ----------------------
+min_periods = st.sidebar.number_input(
+    "Min points for regression", 10, 200, 50
+)
+window_months = st.sidebar.slider(
+    "Rolling window (months)", 1, 12, 3
+)
+
+# form df for analysis
+df = raw_df[[out_contract, fly_contract]].dropna()
+
+# ----------------------
+# 4) CALC: rolling regression
+# ----------------------
 betas, alphas = [], []
-
-min_periods = 50
-
 for t in df.index:
-    window_df = df.loc[df.index >= t - pd.DateOffset(months=3)]
-    
-    if len(window_df) < min_periods:
+    window = df.loc[t - pd.DateOffset(months=window_months) : t]
+    if len(window) < min_periods:
         betas.append(np.nan)
         alphas.append(np.nan)
-        continue
+    else:
+        # fly ~ beta * outright + intercept
+        slope, intercept = np.polyfit(window[out_contract], window[fly_contract], 1)
+        betas.append(slope)
+        alphas.append(intercept)
 
-    slope, intercept = np.polyfit(window_df['leg2'], window_df['fly'], 1)
-    betas.append(slope)
-    alphas.append(intercept)
+# attach results
+df = df.assign(beta=betas, intercept=alphas)
+df['predicted'] = df['beta'] * df[out_contract] + df['intercept']
+df['residual'] = df[fly_contract] - df['predicted']
 
-
-df['beta']      = betas
-df['intercept'] = alphas
-
-df['predicted'] = df['beta'] * df['leg2'] + df['intercept']
-df['residual']  = df['fly'] - df['predicted']
-
+# ----------------------
+# 5) STATS & METRICS
+# ----------------------
 mu, sigma = df['residual'].mean(), df['residual'].std(ddof=1)
-latest_R   = df['residual'].iloc[-1]
-z_score    = (latest_R - mu) / sigma
+latest_res = df['residual'].iloc[-1]
+z_score = (latest_res - mu) / sigma
 
-print(f"Used a true 3-month slice ending at {df.index[-1]}")
-print(f"Latest Z-score = {z_score:.2f}")
+st.subheader("Latest Residual Z-Score")
+st.metric(
+    label=f"Z-score as of {df.index[-1].date()}",
+    value=f"{z_score:.2f}"
+)
 
+# ----------------------
+# 6) DISTRIBUTION PLOT
+# ----------------------
+fig, ax = plt.subplots()
+ax.hist(df['residual'].dropna(), bins=50, density=True, alpha=0.6)
+x_vals = np.linspace(mu-4*sigma, mu+4*sigma, 200)
+ax.plot(x_vals, norm.pdf(x_vals, mu, sigma), linewidth=2)
+ax.set_title("Residuals vs. Normal PDF")
+st.pyplot(fig)
 
-residuals = df['residual'].dropna()
-mu, sigma = residuals.mean(), residuals.std(ddof=1)
+# ----------------------
+# 7) SUMMARY TABLE
+# ----------------------
+st.subheader("Residuals Summary Statistics")
+st.table(
+    pd.DataFrame({
+        'Mean': [mu],
+        'Std Dev': [sigma],
+        'Skewness': [skew(df['residual'].dropna())],
+        'Kurtosis': [kurtosis(df['residual'].dropna(), fisher=False)]
+    }, index=["Value"])
+)
 
-skewness = skew(residuals)
-kurt = kurtosis(residuals, fisher=False)
-
-print(f"Mean: {mu:.4f}")
-print(f"Std Dev: {sigma:.4f}")
-print(f"Skewness: {skewness:.4f}")
-print(f"Kurtosis (Pearson): {kurt:.4f}")
-
-x = np.linspace(mu - 4*sigma, mu + 4*sigma, 200)
-pdf = norm.pdf(x, mu, sigma)
-
-plt.figure()
-plt.hist(residuals, bins=30, density=True)
-plt.plot(x, pdf)
-plt.title('Residuals Histogram with Fitted Normal Curve')
-plt.xlabel('Residual')
-plt.ylabel('Density')
-plt.show()
-
-
-#If the kurtosis is greater than 3, leptokurtic 
-#If neat 0, normal distribution 
-#If less than 0, platykurtic 
-
-#positive skewness, tail on the right 
-#negative skewness, tail on the left
-
-#z-score -1.5 to 1.5 is 0.86639 in distribution 
-#The probabilty of greater than 1.5 is 0.0668,6.68% (top)
-#Less than -1.5 is 0.0668, 6.68% (bottom) 
-
+# ----------------------
+# 8) BETA OVER TIME
+# ----------------------
+if st.checkbox("Show β over time"):
+    st.subheader(f"Rolling β: {out_contract} vs {fly_contract}")
+    st.line_chart(df['beta'].dropna())
