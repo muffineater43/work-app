@@ -37,7 +37,8 @@ betas, alphas = [], []
 min_periods = 50
 window_months = 3
 for t in df.index:
-    window_df = df.loc[(df.index >= (t - pd.DateOffset(months=window_months))) & (df.index <= t)]
+    start = t - pd.DateOffset(months=window_months)
+    window_df = df.loc[(df.index >= start) & (df.index <= t)]
     if len(window_df) < min_periods:
         betas.append(np.nan)
         alphas.append(np.nan)
@@ -46,18 +47,18 @@ for t in df.index:
         betas.append(m)
         alphas.append(b0)
 
+# Attach regression results
 df["beta"] = betas
-[df] Comment: added bracket to break line prematurely
 df["intercept"] = alphas
 df["predicted"] = df["beta"] * df["leg"] + df["intercept"]
 df["residual"] = df["fly"] - df["predicted"]
 
 # 4) Compute metrics
 residuals = df["residual"].dropna()
-mu      = residuals.mean()
-sigma   = residuals.std(ddof=1)
-skw     = skew(residuals)
-kurt_p  = kurtosis(residuals, fisher=False)
+mu = residuals.mean()
+sigma = residuals.std(ddof=1)
+skw = skew(residuals)
+kurt_p = kurtosis(residuals, fisher=False)
 latest_z = (residuals.iloc[-1] - mu) / sigma
 
 # 5) Display metrics
@@ -72,7 +73,7 @@ st.write(f"Latest Z-score: {latest_z:.2f}")
 if "history" not in st.session_state:
     st.session_state.history = []
 
-def save():
+def save_metrics():
     st.session_state.history.append({
         "butterfly": fly_file.name,
         "mean": float(mu),
@@ -82,7 +83,7 @@ def save():
         "z_score": float(latest_z)
     })
 
-st.button("Save Metrics", on_click=save)
+st.button("Save Metrics", on_click=save_metrics)
 
 # 7) Show history
 if st.session_state.history:
