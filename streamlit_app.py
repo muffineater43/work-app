@@ -105,12 +105,14 @@ st.metric(
 # ----------------------
 # 6) DISTRIBUTION PLOT
 # ----------------------
-fig, ax = plt.subplots()
+import matplotlib as mpl
+mpl.rcParams['font.size'] = 10
+fig, ax = plt.subplots(figsize=(12, 5))
 ax.hist(df['residual'].dropna(), bins=50, density=True, alpha=0.6)
 x_vals = np.linspace(mu-4*sigma, mu+4*sigma, 200)
 ax.plot(x_vals, norm.pdf(x_vals, mu, sigma), linewidth=2)
-ax.set_title("Residuals vs. Normal PDF")
-st.pyplot(fig)
+ax.set_title("Residuals vs. Normal PDF", fontsize=12)
+st.pyplot(fig, use_container_width=True)
 
 # ----------------------
 # 7) SUMMARY TABLE
