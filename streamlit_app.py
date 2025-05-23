@@ -49,32 +49,42 @@ df["intercept"] = alphas
 df["predicted"] = df["beta"] * df["leg"] + df["intercept"]
 df["residual"]  = df["fly"] - df["predicted"]
 
-# 4) Compute and display metrics
-mu      = df["residual"].mean()
-sigma   = df["residual"].std(ddof=1)
-latest  = df["residual"].iloc[-1]
-z_score = (latest - mu) / sigma
-
-st.subheader("Latest Residual Z-Score")
-st.write(f"Used a true 3-month slice ending at {df.index[-1].date()}")
-st.metric("Z-score", f"{z_score:.2f}")
-
+# 4) Compute metrics
 residuals = df["residual"].dropna()
-mu2       = residuals.mean()
-sigma2    = residuals.std(ddof=1)
-skw       = skew(residuals)
-kurt_p    = kurtosis(residuals, fisher=False)
+mu      = residuals.mean()
+sigma   = residuals.std(ddof=1)
+skw     = skew(residuals)
+kurt_p  = kurtosis(residuals, fisher=False)
+latest_z = (residuals.iloc[-1] - mu) / sigma
 
-st.subheader("Residual Summary Statistics")
-st.write(f"Mean:     {mu2:.4f}")
-st.write(f"Std Dev:  {sigma2:.4f}")
-st.write(f"Skewness: {skw:.4f}")
-st.write(f"Kurtosis: {kurt_p:.4f}")
+# 5) Display summary metrics
+st.subheader("Latest Residual Z-Score & Summary Stats")
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("Mean",        f"{mu:.4f}")
+col2.metric("Std Dev",     f"{sigma:.4f}")
+col3.metric("Skewness",    f"{skw:.4f}")
+col4.metric("Kurtosis",    f"{kurt_p:.4f}")
+col5.metric("Latest Z",    f"{latest_z:.2f}")
 
-# 5) (Optional) Histogram with fitted normal curve
-fig, ax = plt.subplots()
+# 6) Show historical values in a table
+st.subheader("Historical Regression Results")
+# reset index so Timestamp becomes a column
+df_display = df.reset_index().rename(columns={"index": "Timestamp"})
+st.dataframe(df_display)
+
+# 7) Allow download of full history as CSV
+csv = df_display.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="Download full history as CSV",
+    data=csv,
+    file_name="fly_outright_history.csv",
+    mime="text/csv"
+)
+
+# 8) (Optional) Histogram with fitted normal curve
+fig, ax = plt.subplots(figsize=(8, 4))
 ax.hist(residuals, bins=30, density=True, alpha=0.6)
-x = np.linspace(mu2 - 4*sigma2, mu2 + 4*sigma2, 200)
-ax.plot(x, norm.pdf(x, mu2, sigma2), linewidth=2)
+x = np.linspace(mu - 4*sigma, mu + 4*sigma, 200)
+ax.plot(x, norm.pdf(x, mu, sigma), linewidth=2)
 ax.set_title("Residuals Histogram with Fitted Normal Curve")
 st.pyplot(fig, use_container_width=True)
