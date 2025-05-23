@@ -39,20 +39,7 @@ def load_contracts(files):
     # combine into one DataFrame aligned on index
     return pd.concat(series.values(), axis=1)
 
-raw_df = load_contracts(uploaded_files)
-
-
-
-
-
-# DEBUG #1: show what you actually loaded
-st.sidebar.write("▶️ Loaded contracts:", raw_df.columns.tolist())
-st.sidebar.write("▶️ Points per series:",
-                 {c: raw_df[c].dropna().shape[0] for c in raw_df.columns})
-
-
-
-
+raw_df = pd.concat(series.values(), axis=1, join="inner")
 
 
 
